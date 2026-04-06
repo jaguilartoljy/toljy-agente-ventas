@@ -1,17 +1,15 @@
 export default async function handler(req, res) {
-  // Solo aceptamos POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { message, sessionId } = req.body;
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'No message provided' });
 
-    if (!message) {
-      return res.status(400).json({ error: 'No message provided' });
-    }
-
-    // Llamar a Claude
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -36,23 +34,13 @@ TU PERSONALIDAD:
 - Siempre buscas entender la necesidad del cliente
 - Calificas prospectos: tipo de proyecto, m2, cantidad, zona, presupuesto
 - No inventas precios específicos, ofreces cotización formal
-- Con prospectos serios capturas: nombre, teléfono, correo y proyecto
-
-FLUJO:
-1. Saluda y pregunta en qué puedes ayudar
-2. Identifica si es cliente, distribuidor o proyecto
-3. Entiende la necesidad
-4. Orienta hacia solución Toljy
-5. Captura datos y agenda seguimiento`,
-        messages: [
-          { role: 'user', content: message }
-        ]
+- Con prospectos serios capturas: nombre, teléfono, correo y proyecto`,
+        messages: [{ role: 'user', content: message }]
       })
     });
 
     const data = await response.json();
-    const reply = data.content?.[0]?.text || 'Lo siento, hubo un error. ¿Puedes repetir tu pregunta?';
-
+    const reply = data.content?.[0]?.text || 'Lo siento, hubo un error.';
     return res.status(200).json({ reply });
 
   } catch (error) {
