@@ -1,3 +1,69 @@
+async function buscarContactoOdoo(nombre, empresa) {
+  const url = process.env.ODOO_URL;
+  const apiKey = process.env.ODOO_API_KEY;
+  const db = process.env.ODOO_DB;
+
+  try {
+    const response = await fetch(`${url}/web/dataset/call_kw`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 1,
+        params: {
+          model: 'res.partner',
+          method: 'search_read',
+          args: [[['name', 'ilike', empresa || nombre]]],
+          kwargs: { fields: ['name', 'email', 'phone', 'user_id', 'category_id'], limit: 3 }
+        }
+      })
+    });
+    const data = await response.json();
+    return data.result || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function crearLeadOdoo(datos) {
+  const url = process.env.ODOO_URL;
+  const apiKey = process.env.ODOO_API_KEY;
+  const db = process.env.ODOO_DB;
+
+  try {
+    const response = await fetch(`${url}/web/dataset/call_kw`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'call', id: 1,
+        params: {
+          model: 'crm.lead',
+          method: 'create',
+          args: [{
+            name: `Photon - ${datos.nombre} - ${datos.empresa || 'Sin empresa'}`,
+            contact_name: datos.nombre,
+            partner_name: datos.empresa,
+            email_from: datos.email,
+            phone: datos.telefono,
+            description: datos.resumen,
+            tag_ids: []
+          }],
+          kwargs: {}
+        }
+      })
+    });
+    const data = await response.json();
+    return data.result;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -7,8 +73,15 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { message } = req.body;
+    const { message, historial, datosCliente } = req.body;
     if (!message) return res.status(400).json({ error: 'No message provided' });
+
+    // Si tenemos datos suficientes del cliente, crear lead en Odoo
+    let leadCreado = false;
+    if (datosCliente && datosCliente.nombre && (datosCliente.telefono || datosCliente.email)) {
+      const leadId = await crearLeadOdoo(datosCliente);
+      leadCreado = !!leadId;
+    }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -32,19 +105,44 @@ PRODUCTOS:
 - Puntas de Poste: plazas, hoteles, estacionamientos
 - Postes con Luz, Mobiliario Urbano, Bases, Brazos, Postes
 
+REGLAS DE ENRUTAMIENTO (menciónalas cuando sea relevante):
+- Cliente necesita cálculo de iluminación o diseño de proyecto → "Te voy a conectar con Sandra de nuestro equipo de Proyectos"
+- Cliente es gobierno/municipio → "Te comunicaré con nuestro gerente de ventas"
+- Cliente final nuevo → "Octavio te dará atención personalizada y asignará un ejecutivo"
+- Distribuidor o cliente conocido → "Te conectamos con tu ejecutivo de cuenta"
+
+FLUJO DE CAPTURA (hazlo natural en la conversación):
+1. Saluda y entiende la necesidad
+2. Identifica: ¿es proyecto, gobierno, distribuidor o cliente final?
+3. Pregunta nombre, empresa y zona (occidente/centro/sur)
+4. Cuando tengas nombre + teléfono o email → responde con JSON al final:
+   [LEAD:{"nombre":"...","empresa":"...","telefono":"...","email":"...","tipo":"proyecto|gobierno|distribuidor|cliente_final","zona":"occidente|centro|sur","resumen":"..."}]
+
 PERSONALIDAD:
 - Español mexicano natural, amable y experto
 - Califica prospectos: tipo proyecto, m2, altura, zona, presupuesto
 - No inventes precios, ofrece cotización formal
-- Captura: nombre, teléfono, correo y proyecto
 - Fichas técnicas en toljy.com/descargables`,
-        messages: [{ role: 'user', content: message }]
+        messages: historial || [{ role: 'user', content: message }]
       })
     });
 
     const data = await response.json();
-    const reply = data.content?.[0]?.text || 'Lo siento, hubo un error.';
-    return res.status(200).json({ reply });
+    let reply = data.content?.[0]?.text || 'Lo siento, hubo un error.';
+
+    // Extraer datos del lead si Photon los capturó
+    let leadData = null;
+    const leadMatch = reply.match(/\[LEAD:(.*?)\]/s);
+    if (leadMatch) {
+      try {
+        leadData = JSON.parse(leadMatch[1]);
+        reply = reply.replace(/\[LEAD:.*?\]/s, '').trim();
+        // Crear lead en Odoo
+        await crearLeadOdoo(leadData);
+      } catch(e) {}
+    }
+
+    return res.status(200).json({ reply, leadData });
 
   } catch (error) {
     console.error('Error:', error);
