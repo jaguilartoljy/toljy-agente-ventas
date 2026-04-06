@@ -1,58 +1,30 @@
-async function getOdooSession() {
-  const url = process.env.ODOO_URL;
-  const db = process.env.ODOO_DB;
-  const apiKey = process.env.ODOO_API_KEY;
+async function buscarProductoToljy(nombreProducto) {
+  const productos = {
+    'zulu': '/zulu', 'eco': '/eco', 'ovniled': '/ovniled',
+    'ovniflat': '/ovniflat', 'endeavor': '/endeavor', 'lima': '/lima',
+    'delta': '/delta', 'ovnidelta': '/ovnidelta', 'lima slim': '/lima-slim',
+    'zulu hg': '/hg', 'proyector alfa': '/proyector-alfa', 'alfa': '/proyector-alfa',
+    'dlt': '/dlt', 'lmx': '/lmx', 'wallpack': '/wallpack-s'
+  };
 
-  const response = await fetch(`${url}/web/session/authenticate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0', method: 'call', id: 1,
-      params: {
-        db: db,
-        login: 'jaguilar@toljy.com',
-        password: apiKey
-      }
-    })
-  });
-  const data = await response.json();
-  return data.result?.session_id || null;
-}
-
-async function crearLeadOdoo(datos) {
-  const url = process.env.ODOO_URL;
-  const db = process.env.ODOO_DB;
-  const apiKey = process.env.ODOO_API_KEY;
+  const key = Object.keys(productos).find(k => 
+    nombreProducto.toLowerCase().includes(k)
+  );
+  
+  if (!key) return null;
 
   try {
-    const response = await fetch(`${url}/web/dataset/call_kw`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: 1,
-        params: {
-          model: 'crm.lead',
-          method: 'create',
-          args: [{
-            name: `Photon - ${datos.nombre} - ${datos.empresa || 'Sin empresa'}`,
-            contact_name: datos.nombre,
-            partner_name: datos.empresa,
-            email_from: datos.email || '',
-            phone: datos.telefono || '',
-            description: `Tipo: ${datos.tipo || ''}\nZona: ${datos.zona || ''}\nResumen: ${datos.resumen || ''}`,
-          }],
-          kwargs: { context: { lang: 'es_MX' } }
-        }
-      })
-    });
-    const data = await response.json();
-    console.log('Lead Odoo:', JSON.stringify(data));
-    return data.result;
-  } catch (e) {
-    console.error('Error CRM:', e);
+    const response = await fetch(`https://www.toljy.com${productos[key]}`);
+    const html = await response.text();
+    // Extraer texto relevante del HTML
+    const texto = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .substring(0, 3000);
+    return { producto: key, url: `https://www.toljy.com${productos[key]}`, info: texto };
+  } catch(e) {
     return null;
   }
 }
@@ -66,15 +38,18 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { message, historial, datosCliente } = req.body;
+    const { message, historial } = req.body;
     if (!message) return res.status(400).json({ error: 'No message provided' });
 
-    // Si tenemos datos suficientes del cliente, crear lead en Odoo
-    let leadCreado = false;
-    if (datosCliente && datosCliente.nombre && (datosCliente.telefono || datosCliente.email)) {
-      const leadId = await crearLeadOdoo(datosCliente);
-      leadCreado = !!leadId;
+    // Buscar si mencionan un producto
+    const infoProducto = await buscarProductoToljy(message);
+    
+    let contextoProducto = '';
+    if (infoProducto) {
+      contextoProducto = `\n\nINFO ACTUALIZADA DEL PRODUCTO "${infoProducto.producto.toUpperCase()}" (toljy.com):\n${infoProducto.info}\nURL ficha: ${infoProducto.url}`;
     }
+
+    const mensajes = historial || [{ role: 'user', content: message }];
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -90,60 +65,39 @@ export default async function handler(req, res) {
 
 CONTACTO: comercial@toljy.com | Tel: 55 5565 1617 | WhatsApp: 56 1721 2016
 
-PRODUCTOS:
-- Proyector Alfa: 50W-1000W, 150,000 lm, IP65, 50,000 hrs. Para deportivos, naves, túneles
-- DLT, LMX, Wallpack-S: línea comercial para fachadas, patios, anuncios
-- Seguidor de Reclusorios: seguridad
-- Alumbrado Público: avenidas y vialidades
-- Puntas de Poste: plazas, hoteles, estacionamientos
-- Postes con Luz, Mobiliario Urbano, Bases, Brazos, Postes
+LÍNEAS DE PRODUCTOS:
+- Alumbrado Público: Zulu, Eco, Ovniled, Ovniflat, Endeavor, Lima, Lima Slim, Delta, Ovnidelta, Zulu HG
+- Comercial: Proyector Alfa, DLT, LMX, Wallpack-S, Seguidor de Reclusorios
+- Arquitectónico: Puntas de Poste, Postes con Luz
+- Estructura: Bases, Brazos, Rizos, Postes, Mobiliario Urbano
+- Fichas técnicas y fotometrías: toljy.com/descargables
 
-REGLAS DE ENRUTAMIENTO (menciónalas cuando sea relevante):
-- Cliente necesita cálculo de iluminación o diseño de proyecto → "Te voy a conectar con nuestro equipo de proyectos de iluminación"
-- Cliente es gobierno/municipio → "Te comunicaré con nuestro equipo especializado en sector gobierno"
-- Cliente final nuevo → "Con gusto te asignamos un ejecutivo de cuenta"
-- Distribuidor o cliente conocido → "Te conectamos con tu ejecutivo de cuenta"
+REGLAS DE ENRUTAMIENTO:
+- Necesita cálculo/diseño de proyecto → "Te conectamos con nuestro equipo de proyectos de iluminación"
+- Gobierno/municipio → "Te comunicamos con nuestro equipo especializado en sector gobierno"  
+- Cliente final nuevo → "Te asignamos un ejecutivo de cuenta personalizado"
+- Distribuidor/cliente conocido → "Te conectamos con tu ejecutivo de cuenta"
+
+INICIO DE CONVERSACIÓN:
+- Siempre pide nombre y empresa antes de cualquier otra cosa
+- De forma natural consigue teléfono o correo durante la conversación
+- No hagas todas las preguntas de golpe
 
 IMPORTANTE:
 - Nunca menciones nombres internos del equipo
-- Si el cliente ya dio su nombre, NO lo vuelvas a pedir
-- Usa siempre el historial de conversación para no repetir preguntas
-
-FLUJO DE CAPTURA (hazlo natural en la conversación):
-1. Saluda y entiende la necesidad
-2. Identifica: ¿es proyecto, gobierno, distribuidor o cliente final?
-3. Pregunta nombre, empresa y zona (occidente/centro/sur)
-4. Cuando tengas nombre + teléfono o email → responde con JSON al final:
-   [LEAD:{"nombre":"...","empresa":"...","telefono":"...","email":"...","tipo":"proyecto|gobierno|distribuidor|cliente_final","zona":"occidente|centro|sur","resumen":"..."}]
-
-PERSONALIDAD:
-- Español mexicano natural, amable y experto
-- Califica prospectos: tipo proyecto, m2, altura, zona, presupuesto
-- No inventes precios, ofrece cotización formal
-- Fichas técnicas en toljy.com/descargables`,
-        messages: historial || [{ role: 'user', content: message }]
+- Si el cliente ya dio su nombre NO lo vuelvas a pedir
+- Cuando tengas nombre + empresa + (tel o correo) incluye al final: [LEAD:{"nombre":"...","empresa":"...","telefono":"...","email":"...","tipo":"...","zona":"...","resumen":"..."}]
+- No inventes precios, ofrece cotización formal${contextoProducto}`,
+        messages: mensajes
       })
     });
 
     const data = await response.json();
     let reply = data.content?.[0]?.text || 'Lo siento, hubo un error.';
 
-    // Extraer datos del lead si Photon los capturó
-    let leadData = null;
+    // Extraer y crear lead si hay datos
     const leadMatch = reply.match(/\[LEAD:(.*?)\]/s);
     if (leadMatch) {
       try {
-        leadData = JSON.parse(leadMatch[1]);
-        reply = reply.replace(/\[LEAD:.*?\]/s, '').trim();
-        // Crear lead en Odoo
-        await crearLeadOdoo(leadData);
-      } catch(e) {}
-    }
-
-    return res.status(200).json({ reply, leadData });
-
-  } catch (error) {
-    console.error('Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
+        const leadData = JSON.parse(leadMatch[1]);
+        reply = reply.replace(/\[LEAD:
