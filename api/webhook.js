@@ -1,41 +1,33 @@
-async function buscarContactoOdoo(nombre, empresa) {
+async function getOdooSession() {
   const url = process.env.ODOO_URL;
-  const apiKey = process.env.ODOO_API_KEY;
   const db = process.env.ODOO_DB;
+  const apiKey = process.env.ODOO_API_KEY;
 
-  try {
-    const response = await fetch(`${url}/web/dataset/call_kw`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: 1,
-        params: {
-          model: 'res.partner',
-          method: 'search_read',
-          args: [[['name', 'ilike', empresa || nombre]]],
-          kwargs: { fields: ['name', 'email', 'phone', 'user_id', 'category_id'], limit: 3 }
-        }
-      })
-    });
-    const data = await response.json();
-    return data.result || [];
-  } catch (e) {
-    return [];
-  }
+  const response = await fetch(`${url}/web/session/authenticate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', method: 'call', id: 1,
+      params: {
+        db: db,
+        login: 'jaguilar@toljy.com',
+        password: apiKey
+      }
+    })
+  });
+  const data = await response.json();
+  return data.result?.session_id || null;
 }
 
 async function crearLeadOdoo(datos) {
   const url = process.env.ODOO_URL;
-  const apiKey = process.env.ODOO_API_KEY;
   const db = process.env.ODOO_DB;
+  const apiKey = process.env.ODOO_API_KEY;
 
   try {
     const response = await fetch(`${url}/web/dataset/call_kw`, {
       method: 'POST',
-      headers: {
+      headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
@@ -48,18 +40,19 @@ async function crearLeadOdoo(datos) {
             name: `Photon - ${datos.nombre} - ${datos.empresa || 'Sin empresa'}`,
             contact_name: datos.nombre,
             partner_name: datos.empresa,
-            email_from: datos.email,
-            phone: datos.telefono,
-            description: datos.resumen,
-            tag_ids: []
+            email_from: datos.email || '',
+            phone: datos.telefono || '',
+            description: `Tipo: ${datos.tipo || ''}\nZona: ${datos.zona || ''}\nResumen: ${datos.resumen || ''}`,
           }],
-          kwargs: {}
+          kwargs: { context: { lang: 'es_MX' } }
         }
       })
     });
     const data = await response.json();
+    console.log('Lead Odoo:', JSON.stringify(data));
     return data.result;
   } catch (e) {
+    console.error('Error CRM:', e);
     return null;
   }
 }
