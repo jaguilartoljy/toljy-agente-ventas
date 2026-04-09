@@ -4,7 +4,6 @@ export async function crearLeadOdoo(datos) {
     const apiKey = process.env.ODOO_API_KEY;
     const db = process.env.ODOO_DB;
 
-    // Odoo XML-RPC - protocolo oficial para acceso externo
     const xmlAuthenticate = `<?xml version="1.0"?>
 <methodCall>
   <methodName>authenticate</methodName>
@@ -23,9 +22,6 @@ export async function crearLeadOdoo(datos) {
     });
 
     const authText = await authResp.text();
-    console.log('Auth response:', authText.substring(0, 200));
-
-    // Extraer uid del XML
     const uidMatch = authText.match(/<int>(\d+)<\/int>/);
     if (!uidMatch) {
       console.error('Auth fallida:', authText.substring(0, 300));
@@ -34,7 +30,6 @@ export async function crearLeadOdoo(datos) {
     const uid = uidMatch[1];
     console.log('UID obtenido:', uid);
 
-    // Crear lead via XML-RPC
     const xmlCreate = `<?xml version="1.0"?>
 <methodCall>
   <methodName>execute_kw</methodName>
@@ -52,6 +47,13 @@ export async function crearLeadOdoo(datos) {
         <member><name>email_from</name><value><string>${datos.email || ''}</string></value></member>
         <member><name>phone</name><value><string>${datos.telefono || ''}</string></value></member>
         <member><name>description</name><value><string>Tipo: ${datos.tipo || ''} | Zona: ${datos.zona || ''} | ${datos.resumen || ''} | Capturado por Photon IA</string></value></member>
+        <member><name>tag_ids</name><value><array><data>
+          <value><array><data>
+            <value><int>4</int></value>
+            <value><int>13</int></value>
+            <value><int>0</int></value>
+          </data></array></value>
+        </data></array></value></member>
       </struct></value>
     </data></array></value></param>
     <param><value><struct></struct></value></param>
