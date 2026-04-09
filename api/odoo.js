@@ -1,13 +1,19 @@
 export async function crearLeadOdoo(datos) {
   try {
-    const response = await fetch(`${process.env.ODOO_URL}/web/dataset/call_kw`, {
+    const url = process.env.ODOO_URL;
+    const apiKey = process.env.ODOO_API_KEY;
+    const db = process.env.ODOO_DB;
+
+    // Odoo.sh usa JSON-RPC con API key como password y empty user
+    const response = await fetch(`${url}/web/dataset/call_kw`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ODOO_API_KEY}`
       },
       body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: 1,
+        jsonrpc: '2.0',
+        method: 'call',
+        id: 1,
         params: {
           model: 'crm.lead',
           method: 'create',
@@ -17,28 +23,43 @@ export async function crearLeadOdoo(datos) {
             partner_name: datos.empresa || '',
             email_from: datos.email || '',
             phone: datos.telefono || '',
-            description: `Tipo: ${datos.tipo || ''}\nZona: ${datos.zona || ''}\nResumen: ${datos.resumen || ''}`
+            description: `Tipo: ${datos.tipo || ''}\nZona: ${datos.zona || ''}\nResumen: ${datos.resumen || ''}\n\nCapturado por Photon IA`,
           }],
-          kwargs: { context: { lang: 'es_MX' } }
+          kwargs: {
+            context: {
+              lang: 'es_MX',
+              allowed_company_ids: [1]
+            }
+          }
         }
-      })
+      }),
+      // Autenticación con API key via Basic Auth
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${apiKey}:`).toString('base64')
+      }
     });
+
     const data = await response.json();
-    console.log('Lead creado:', JSON.stringify(data));
+    console.log('Lead Odoo resultado:', JSON.stringify(data));
     return data.result;
+
   } catch(e) {
-    console.error('Error CRM:', e);
+    console.error('Error CRM:', e.message);
     return null;
   }
 }
 
 export async function buscarContacto(nombre, empresa) {
   try {
-    const response = await fetch(`${process.env.ODOO_URL}/web/dataset/call_kw`, {
+    const url = process.env.ODOO_URL;
+    const apiKey = process.env.ODOO_API_KEY;
+
+    const response = await fetch(`${url}/web/dataset/call_kw`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ODOO_API_KEY}`
+        'Authorization': 'Basic ' + Buffer.from(`${apiKey}:`).toString('base64')
       },
       body: JSON.stringify({
         jsonrpc: '2.0', method: 'call', id: 1,
