@@ -4,39 +4,76 @@ export async function crearLeadOdoo(datos) {
     const apiKey = process.env.ODOO_API_KEY;
     const db = process.env.ODOO_DB;
 
-    const response = await fetch(`${url}/web/dataset/call_kw/crm.lead/create`, {
+    // Odoo XML-RPC - protocolo oficial para acceso externo
+    const xmlAuthenticate = `<?xml version="1.0"?>
+<methodCall>
+  <methodName>authenticate</methodName>
+  <params>
+    <param><value><string>${db}</string></value></param>
+    <param><value><string>jaguilar@toljy.com</string></value></param>
+    <param><value><string>${apiKey}</string></value></param>
+    <param><value><struct></struct></value></param>
+  </params>
+</methodCall>`;
+
+    const authResp = await fetch(`${url}/xmlrpc/2/common`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-Odoo-Dbname': db
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'call',
-        id: 1,
-        params: {
-          model: 'crm.lead',
-          method: 'create',
-          args: [{
-            name: `Photon - ${datos.nombre} - ${datos.empresa || 'Sin empresa'}`,
-            contact_name: datos.nombre,
-            partner_name: datos.empresa || '',
-            email_from: datos.email || '',
-            phone: datos.telefono || '',
-            description: `Tipo: ${datos.tipo || ''}\nZona: ${datos.zona || ''}\nResumen: ${datos.resumen || ''}\n\n📍 Capturado por Photon IA`
-          }],
-          kwargs: { context: { lang: 'es_MX' } }
-        }
-      })
+      headers: { 'Content-Type': 'text/xml' },
+      body: xmlAuthenticate
     });
 
-    const text = await response.text();
-    console.log('Odoo raw response:', text.substring(0, 300));
-    
-    const data = JSON.parse(text);
-    console.log('Lead resultado:', JSON.stringify(data));
-    return data.result || null;
+    const authText = await authResp.text();
+    console.log('Auth response:', authText.substring(0, 200));
+
+    // Extraer uid del XML
+    const uidMatch = authText.match(/<int>(\d+)<\/int>/);
+    if (!uidMatch) {
+      console.error('Auth fallida:', authText.substring(0, 300));
+      return null;
+    }
+    const uid = uidMatch[1];
+    console.log('UID obtenido:', uid);
+
+    // Crear lead via XML-RPC
+    const xmlCreate = `<?xml version="1.0"?>
+<methodCall>
+  <methodName>execute_kw</methodName>
+  <params>
+    <param><value><string>${db}</string></value></param>
+    <param><value><int>${uid}</int></value></param>
+    <param><value><string>${apiKey}</string></value></param>
+    <param><value><string>crm.lead</string></value></param>
+    <param><value><string>create</string></value></param>
+    <param><value><array><data>
+      <value><struct>
+        <member><name>name</name><value><string>Photon - ${datos.nombre} - ${datos.empresa || 'Sin empresa'}</string></value></member>
+        <member><name>contact_name</name><value><string>${datos.nombre}</string></value></member>
+        <member><name>partner_name</name><value><string>${datos.empresa || ''}</string></value></member>
+        <member><name>email_from</name><value><string>${datos.email || ''}</string></value></member>
+        <member><name>phone</name><value><string>${datos.telefono || ''}</string></value></member>
+        <member><name>description</name><value><string>Tipo: ${datos.tipo || ''} | Zona: ${datos.zona || ''} | ${datos.resumen || ''} | Capturado por Photon IA</string></value></member>
+      </struct></value>
+    </data></array></value></param>
+    <param><value><struct></struct></value></param>
+  </params>
+</methodCall>`;
+
+    const createResp = await fetch(`${url}/xmlrpc/2/object`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml' },
+      body: xmlCreate
+    });
+
+    const createText = await createResp.text();
+    console.log('Create response:', createText.substring(0, 200));
+
+    const idMatch = createText.match(/<int>(\d+)<\/int>/);
+    if (idMatch) {
+      console.log('✅ Lead creado con ID:', idMatch[1]);
+      return idMatch[1];
+    }
+
+    return null;
 
   } catch(e) {
     console.error('Error CRM:', e.message);
